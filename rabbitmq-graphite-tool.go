@@ -64,7 +64,7 @@ func fetchQueueMetrics(mgmtUri string, prefix string) (metrics []graphite.Metric
                 }
             }
         }
-        metric := graphite.Metric{Name:prefix+"_queue_"+name,
+        metric := graphite.Metric{Name:prefix+"queue."+name,
             Value:strconv.Itoa(int(rate)),
             Timestamp:time.Now().Unix()}
         metrics = append(metrics, metric)
@@ -92,7 +92,7 @@ func fetchExchangeMetrics(mgmtUri string, prefix string) (metrics []graphite.Met
             rate = stat["message_stats_out"].(map[string]interface{})["publish_details"].
                 (map[string]interface{})["rate"].(float64)
         }
-        metric := graphite.Metric{Name:prefix+"_exchange_"+name,
+        metric := graphite.Metric{Name:prefix+"exchange."+name,
             Value:strconv.Itoa(int(rate)),
             Timestamp:time.Now().Unix()}
         metrics = append(metrics, metric)
@@ -127,7 +127,7 @@ func monitoring(uri string, queueName string, mgmtUri string, prefix string) {
         }
         queueChan.Close()
         queueConn.Close()
-        time.Sleep(time.Second * time.Duration(5))
+        time.Sleep(time.Second)
     }
 }
 
@@ -157,6 +157,7 @@ func metricListen(uri string, queueName string, graphiteHost string, graphitePor
         data := strings.Split(string(msg.Body), "\t")
         timestamp, _ := strconv.ParseInt(data[2], 10, 64)
         metric := graphite.Metric{Name:data[0],Value:data[1],Timestamp:timestamp}
+        //log.Printf("metric: %s = %s", data[0], data[1])
         graphiteSendMetric(graphiteHost, graphitePort, metric)
     }
 }
