@@ -26,3 +26,14 @@ Usage of ./rabbitmq-graphite-tool:
   -rabbitmq-queue="graphite": incoming queue name for graphite metrics
   -rabbitmq-uri="amqp://guest:guest@localhost:5672": rabbitmq connection uri
 ```
+
+## Result
+
+![Image](graphite.png?raw=true)
+
+
+Enjoy!
+
+
+Artem Andreenko,
+Openstat.
