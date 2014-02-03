@@ -16,14 +16,24 @@ With this tool you can do next:
 
 ## Usage
 
-4. ./rabbitmq-graphite-tool --help
+```
+./rabbitmq-graphite-tool --help
 
 Usage of ./rabbitmq-graphite-tool:
   -graphite="localhost:2003": graphite server address host:port
-  -prefix="rabbitmq.node01_": prefix for rabbitmq monitoring in graphite
+  -prefix="rabbitmq.node01.": prefix for rabbitmq monitoring in graphite
   -rabbitmq-mgmt-uri="http://guest:guest@localhost:55672": rabbitmq managment plugin address host:port
   -rabbitmq-queue="graphite": incoming queue name for graphite metrics
   -rabbitmq-uri="amqp://guest:guest@localhost:5672": rabbitmq connection uri
+```
+
+## Result
+
+![Image](graphite.png?raw=true)
 
 
+Enjoy!
 
+
+Artem Andreenko,
+Openstat.
