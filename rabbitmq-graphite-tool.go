@@ -41,8 +41,38 @@ func fetchUrl(requestUrl string) (body []byte, statusCode int, err error) {
     return
 }
 
+func findObject(query string, obj interface{}) (item interface{}) {
+    if reflect.ValueOf(obj).Kind() != reflect.Map {
+        return
+    }
+    i := strings.Index(query, ".")
+    objMap := obj.(map[string]interface{})
+    if i == -1 {
+        item, _ = objMap[query]
+    } else {
+        item = findObject(query[i+1:], objMap[query[:i]])
+    }
+    return
+}
+
+func findNumber(query string, obj interface{}) (result float64) {
+    item := findObject(query, obj)
+    if item != nil {
+        result = item.(float64)
+    }
+    return
+}
+
+func findString(query string, obj interface{}) (result string) {
+    item := findObject(query, obj)
+    if item != nil {
+        result = item.(string)
+    }
+    return
+}
+
 func fetchQueueMetrics(mgmtUri string, prefix string) (metrics []graphite.Metric) {
-    url := mgmtUri + "/api/queues?columns=name,message_stats.publish_details.rate"
+    url := mgmtUri + "/api/queues"
     response, statusCode, err := fetchUrl(url)
     if err != nil || statusCode != 200 {
         log.Printf("error fetch rabbiqmq queues: %d - %s", statusCode, err)
@@ -50,30 +80,37 @@ func fetchQueueMetrics(mgmtUri string, prefix string) (metrics []graphite.Metric
     }
     var stats []interface{}
     json.Unmarshal(response, &stats)
-    for _, _stat := range stats {
-        stat := _stat.(map[string]interface{})
-        name := stat["name"].(string)
+    for _, stat := range stats {
+        name := findString("name", stat)
         if name == "" {
             continue
         }
-        rate := 0.0
-        if message_stats, ok := stat["message_stats"]; ok {
-            if reflect.ValueOf(message_stats).Kind() == reflect.Map {
-                if publish_details, ok := message_stats.(map[string]interface{})["publish_details"]; ok {
-                    rate = publish_details.(map[string]interface{})["rate"].(float64)
-                }
-            }
-        }
-        metric := graphite.Metric{Name:prefix+"queue."+name,
-            Value:strconv.Itoa(int(rate)),
-            Timestamp:time.Now().Unix()}
+        rate_publish := findNumber("message_stats.publish_details.rate", stat)
+        rate_get := findNumber("message_stats.deliver_get_details.rate", stat)
+        rate_noack := findNumber("message_stats.deliver_no_ack_details.rate", stat)
+        msg_ready := findNumber("messages_ready", stat)
+        msg_unack := findNumber("messages_unacknowledged", stat)
+        metric := graphite.Metric{Name:prefix+"queue."+name+".rate_publish",
+            Value:strconv.Itoa(int(rate_publish)),Timestamp:time.Now().Unix()}
+        metrics = append(metrics, metric)
+        metric = graphite.Metric{Name:prefix+"queue."+name+".rate_get",
+            Value:strconv.Itoa(int(rate_get)),Timestamp:time.Now().Unix()}
+        metrics = append(metrics, metric)
+        metric = graphite.Metric{Name:prefix+"queue."+name+".rate_noack",
+            Value:strconv.Itoa(int(rate_noack)),Timestamp:time.Now().Unix()}
+        metrics = append(metrics, metric)
+        metric = graphite.Metric{Name:prefix+"queue."+name+".msg_ready",
+            Value:strconv.Itoa(int(msg_ready)),Timestamp:time.Now().Unix()}
+        metrics = append(metrics, metric)
+        metric = graphite.Metric{Name:prefix+"queue."+name+".msg_unack",
+            Value:strconv.Itoa(int(msg_unack)),Timestamp:time.Now().Unix()}
         metrics = append(metrics, metric)
     }
     return
 }
 
 func fetchExchangeMetrics(mgmtUri string, prefix string) (metrics []graphite.Metric) {
-    url := mgmtUri + "/api/exchanges?columns=name,message_stats_out.publish_details.rate"
+    url := mgmtUri + "/api/exchanges"
     response, statusCode, err := fetchUrl(url)
     if err != nil || statusCode != 200 {
         log.Printf("error fetch rabbiqmq queues: %d - %s", statusCode, err)
@@ -81,21 +118,22 @@ func fetchExchangeMetrics(mgmtUri string, prefix string) (metrics []graphite.Met
     }
     var stats []interface{}
     json.Unmarshal(response, &stats)
-    for _, _stat := range stats {
-        stat := _stat.(map[string]interface{})
-        name := stat["name"].(string)
+    for _, stat := range stats {
+        name := findString("name", stat)
         if name == "" {
             continue
         }
-        rate := 0.0
-        if _, ok := stat["message_stats_out"]; ok {
-            rate = stat["message_stats_out"].(map[string]interface{})["publish_details"].
-                (map[string]interface{})["rate"].(float64)
-        }
-        metric := graphite.Metric{Name:prefix+"exchange."+name,
-            Value:strconv.Itoa(int(rate)),
+        rate_in := findNumber("message_stats.publish_in_details.rate", stat)
+        rate_out := findNumber("message_stats.publish_out_details.rate", stat)
+        metric := graphite.Metric{Name:prefix+"exchange."+name+".rate_in",
+            Value:strconv.Itoa(int(rate_in)),
             Timestamp:time.Now().Unix()}
         metrics = append(metrics, metric)
+        metric = graphite.Metric{Name:prefix+"exchange."+name+".rate_out",
+            Value:strconv.Itoa(int(rate_out)),
+            Timestamp:time.Now().Unix()}
+        metrics = append(metrics, metric)
+
     }
     return
 }
@@ -106,6 +144,10 @@ func monitoring(uri string, queueName string, mgmtUri string, prefix string) {
         queueChan  *amqp.Channel
         err error
     )
+    queueConn, queueChan, err = rabbitmqConnect(uri, queueName)
+    if err != nil {
+        return
+    }
     for {
         log.Printf("fetch rabbitmq stats")
         var metrics []graphite.Metric
@@ -115,20 +157,16 @@ func monitoring(uri string, queueName string, mgmtUri string, prefix string) {
         for _, metric := range fetchExchangeMetrics(mgmtUri, prefix) {
             metrics = append(metrics, metric)
         }
-        queueConn, queueChan, err = rabbitmqConnect(uri, queueName)
-        if err != nil {
-            time.Sleep(time.Second)
-            continue
-        }
         for _, metric := range metrics {
             body := []byte( metric.Name+"\t"+metric.Value+"\t"+strconv.FormatInt(metric.Timestamp, 10))
             msg := amqp.Publishing{ContentType:"text/plain",Body:body}
             queueChan.Publish("", queueName, false, false, msg)
+            //log.Printf("metric\t%s\t\t%s", metric.Name, metric.Value)
         }
-        queueChan.Close()
-        queueConn.Close()
-        time.Sleep(time.Second)
+        time.Sleep(time.Second * 5)
     }
+    queueChan.Close()
+    queueConn.Close()
 }
 
 func graphiteSendMetric(host string, port int, metric graphite.Metric) {
@@ -179,11 +217,11 @@ func main() {
         "rabbitmq-uri", "amqp://guest:guest@localhost:5672", "rabbitmq connection uri")
     flag.StringVar(&mgmtUri, 
         "rabbitmq-mgmt-uri", 
-        "http://guest:guest@localhost:55672", "rabbitmq managment plugin address host:port")
+        "http://guest:guest@localhost:15672", "rabbitmq managment plugin address host:port")
     flag.StringVar(&graphite, 
         "graphite", "localhost:2003", "graphite server address host:port")
     flag.StringVar(&prefix, 
-        "prefix", "rabbitmq.node01_", "prefix for rabbitmq monitoring in graphite")
+        "prefix", "rabbitmq.node01.", "prefix for rabbitmq monitoring in graphite")
     flag.Parse()
 
     log.Printf("rabbitmq-queue:     %s", queue)
@@ -199,9 +237,14 @@ func main() {
     }
     graphitePort, _ := strconv.Atoi(_graphitePort)
 
-    go monitoring(uri, queue, mgmtUri, prefix)
+    go func () {
+        for {
+            log.Printf("start monitoring")
+            monitoring(uri, queue, mgmtUri, prefix)
+            time.Sleep(time.Second)
+        }
+    }()
     for {
-        //<- make(chan bool)
         metricListen(uri, queue, graphiteHost, graphitePort)
     }
 }
