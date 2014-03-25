@@ -186,11 +186,7 @@ func metricListen(uri string, queueName string, graphiteHost string, graphitePor
     }
     defer queueConn.Close()
     defer queueChan.Close()
-    queue, err := queueChan.QueueDeclare(queueName,true,false,false,false,nil)
-    if nonFatalError("can't queue declare", err, 5000) {
-        return
-    }
-    msgs, err := queueChan.Consume(queue.Name, "", true, false, false, false, nil)
+    msgs, err := queueChan.Consume(queueName, "", true, false, false, false, nil)
     for msg := range msgs {
         data := strings.Split(string(msg.Body), "\t")
         timestamp, _ := strconv.ParseInt(data[2], 10, 64)
