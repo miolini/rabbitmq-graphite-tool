@@ -160,7 +160,11 @@ func monitoring(uri string, queueName string, mgmtUri string, prefix string) {
         for _, metric := range metrics {
             body := []byte( metric.Name+"\t"+metric.Value+"\t"+strconv.FormatInt(metric.Timestamp, 10))
             msg := amqp.Publishing{ContentType:"text/plain",Body:body}
-            queueChan.Publish("", queueName, false, false, msg)
+            err = queueChar.Publish("", queueName, false, false, msg)
+	    if err != nil {
+		log.Printf("publish err: %s", err)
+		return
+	    }
             //log.Printf("metric\t%s\t\t%s", metric.Name, metric.Value)
         }
         time.Sleep(time.Second * 5)
