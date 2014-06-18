@@ -191,7 +191,7 @@ func metricListen(uri string, queueName string, graphiteHost string, graphitePor
     for msg := range msgs {
         data := strings.Split(string(msg.Body), "\t")
         timestamp, _ := strconv.ParseInt(data[2], 10, 64)
-        log.Printf("metric: %s = %s", data[0], data[1])
+        //log.Printf("metric: %s = %s", data[0], data[1])
         metric := graphite.Metric{Name:data[0],Value:data[1],Timestamp:timestamp}
         err = graphiteConn.SendMetric(metric)
         if err != nil {
