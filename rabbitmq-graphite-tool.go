@@ -173,17 +173,7 @@ func monitoring(uri string, queueName string, mgmtUri string, prefix string) {
     queueConn.Close()
 }
 
-func graphiteSendMetric(host string, port int, metric graphite.Metric) {
-    graphiteConn, err := graphite.NewGraphite(host, port)
-    if err != nil {
-        log.Printf("skip metrics sending, because graphite not working: %s", err)
-        return
-    }
-    graphiteConn.SendMetric(metric)
-}
-
-
-func metricListen(uri string, queueName string, graphiteHost string, graphitePort int) {
+func metricListen(uri string, queueName string, graphiteHost string, graphitePort int) (err error) {
     queueConn, queueChan, err := rabbitmqConnect(uri, queueName)
     if nonFatalError("can't connect to rabbitmq", err, 5000) {
         return
@@ -191,13 +181,24 @@ func metricListen(uri string, queueName string, graphiteHost string, graphitePor
     defer queueConn.Close()
     defer queueChan.Close()
     msgs, err := queueChan.Consume(queueName, "", true, false, false, false, nil)
+    if err != nil {
+        return
+    }
+    graphiteConn, err := graphite.NewGraphite(graphiteHost, graphitePort)
+    if err != nil {
+        return
+    }
     for msg := range msgs {
         data := strings.Split(string(msg.Body), "\t")
         timestamp, _ := strconv.ParseInt(data[2], 10, 64)
+        log.Printf("metric: %s = %s", data[0], data[1])
         metric := graphite.Metric{Name:data[0],Value:data[1],Timestamp:timestamp}
-        //log.Printf("metric: %s = %s", data[0], data[1])
-        graphiteSendMetric(graphiteHost, graphitePort, metric)
+        err = graphiteConn.SendMetric(metric)
+        if err != nil {
+            return
+        }
     }
+    return
 }
 
 
@@ -209,6 +210,7 @@ func main() {
         mgmtUri         string
         graphite        string
         prefix          string
+        err             error
     )
 
     flag.StringVar(&queue, 
@@ -245,6 +247,10 @@ func main() {
         }
     }()
     for {
-        metricListen(uri, queue, graphiteHost, graphitePort)
+        err = metricListen(uri, queue, graphiteHost, graphitePort)
+        if err != nil {
+            log.Printf("err: %s", err)
+            time.Sleep(time.Second)
+        }
     }
 }
